@@ -1,6 +1,5 @@
 package com.antonbasson.productcatalog.util
 
-import android.content.ContentResolver
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -23,13 +22,12 @@ object PdfExporter {
         categoryName: String,
         products: List<ProductEntity>
     ): Uri? {
-        val pdf = PdfDocument()
+        val document = PdfDocument()
         val pageWidth = 595
         val pageHeight = 842
-        var pageNumber = 1
-        var page = pdf.startPage(PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create())
+        val pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, 1).create()
+        var page = document.startPage(pageInfo)
         val canvas = page.canvas
-        var y = pageHeight - 60f
 
         val titlePaint = Paint().apply {
             textSize = 24f
@@ -42,18 +40,21 @@ object PdfExporter {
             textSize = 10f
         }
 
+        var y = pageHeight - 60f
         canvas.drawText("$categoryName Product Catalogue", 40f, y, titlePaint)
-        y -= 34f
+        y -= 30f
         canvas.drawText("Generated: ${SimpleDateFormat("dd MMM yyyy", Locale.ENGLISH).format(Date())}", 40f, y, smallPaint)
-        y -= 36f
+        y -= 30f
 
         for (product in products) {
             if (y < 170f) {
-                pdf.finishPage(page)
-                pageNumber += 1
-                page = pdf.startPage(PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create())
-                canvas.setBitmap(page.canvas.nativeCanvas) // no-op placeholder
+                document.finishPage(page)
+                val newPageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, document.pages.size + 1).create()
+                page = document.startPage(newPageInfo)
                 y = pageHeight - 60f
+                val nextCanvas = page.canvas
+                nextCanvas.drawText("$categoryName Product Catalogue", 40f, y, titlePaint)
+                y -= 30f
             }
 
             val bitmap = product.imagePath?.let { decodeBitmap(it) }
@@ -67,30 +68,21 @@ object PdfExporter {
             canvas.drawText("Barcode: ${product.barcode}", 180f, y - 46f, bodyPaint)
             canvas.drawText("Selling: ${PriceUtils.formatCurrency(product.sellingPrice)}", 180f, y - 66f, bodyPaint)
             canvas.drawText("Cost: ${PriceUtils.formatCurrency(product.costPrice)}", 180f, y - 86f, bodyPaint)
-            y -= 140f
-
-            if (y < 100f) {
-                pdf.finishPage(page)
-                pageNumber += 1
-                page = pdf.startPage(PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create())
-                y = pageHeight - 60f
-            }
+            y -= 130f
         }
 
-        pdf.finishPage(page)
+        document.finishPage(page)
 
         val directory = File(context.getExternalFilesDir(null), "catalogues")
         if (!directory.exists()) directory.mkdirs()
 
         val file = File(directory, "${categoryName.replace("/", "_").replace(" ", "_").lowercase()}_catalogue.pdf")
         return try {
-            FileOutputStream(file).use { outputStream ->
-                pdf.writeTo(outputStream)
-            }
-            pdf.close()
+            FileOutputStream(file).use { outputStream -> document.writeTo(outputStream) }
+            document.close()
             FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
         } catch (e: IOException) {
-            pdf.close()
+            document.close()
             null
         }
     }
